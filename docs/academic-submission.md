@@ -1,46 +1,38 @@
-# Academic demonstration guide
+# Artificial Intelligence Digital Assignment III — demonstration guide
 
-## What makes NOVA agentic?
-
-NOVA is not a fixed answer template. The objective classification changes the plan and tool path:
-
-- A solar objective selects the solar scenario model and then a percentage comparison.
-- A calculation objective selects the bounded arithmetic tool or an engineering formula.
-- A research objective selects public evidence retrieval and preserves the returned references.
-- The local Ollama model can choose among the registered tools through `/api/chat` tool-use messages and can make multiple calls within the run budget.
-
-The UI makes this progression visible through plan steps, tool-selected events, tool results, plan checkpoints, warnings, and a terminal status. The app shows operational traces, not fabricated hidden reasoning.
-
-## Professor run-through
-
-1. `npm install`
-2. `npm run dev`
-3. Open `http://localhost:3000`.
-4. Use the solar objective on the Overview page.
-5. In the Agent workspace, expand the `solar_tracking_analysis` and `percentage_improvement` results.
-6. Point out that the fixed, single-axis, and dual-axis values come from `src/lib/engineering/solar.ts` and are not decorative constants in the UI.
-7. Set the execution budget to one by calling the route directly or using the test; the runner returns partial completion instead of claiming the comparison ran.
-8. Open Workbench and change assumptions to show the chart and result cards use one shared calculation.
-9. Open Reports to inspect the actual objective, method, limitations, and source section.
-
-## Local model distinction
-
-The response is labelled `OLLAMA LOCAL` only after a successful local model response. If Ollama is stopped or the configured model is missing, the response is `failed` and explains how to restore the local dependency. No paid or cloud provider is used.
+NOVA by AETHRA is a local engineering assistant that accepts an objective, asks an Ollama model to choose among registered tools, executes a validated tool, and can return the observed result to the model. Its final record contains operational events, tool outputs, warnings and status. This decision–action–observation loop is why it is an agent rather than a fixed answer template. Calculations are performed by deterministic code; the model does not supply the numerical result as evidence.
 
 ## Development schema
 
-The main evaluation layers are:
+```text
+User objective → Structured plan (or direct first decision)
+                         ↓
+                 Model selects a tool → Validated tool execution
+                                                ↓
+                                      Observed tool result
+                                                ↓
+                                  Model evaluation / continuation
+                                                ↓
+                              Final output + events + status
+```
 
-- Unit tests for formulas, parser boundaries, and input validation.
-- Agent tests for multi-tool local execution and budget-limited partial status.
-- Build, TypeScript, and lint checks for framework health.
-- Manual UI verification of objective submission, event inspection, workbench consistency, report view, and responsive layout.
+In quick-calculation mode, the first model decision combines deciding how to proceed and selecting from three calculation tools; there is no separate AI-generated plan. Structured-investigation mode uses the separate validated planning call and broader tools, with explicitly labelled fallback on invalid plans. The model may choose no tool, or request another tool within the budget. Validation and the supervisor reject invalid or unoffered tools and return partial or failed status when the work cannot be completed. Events appear after the response arrives; they are not a live stream. No hidden reasoning is displayed.
 
-## Questions to evaluate
+## Preparation and demonstration
 
-- Does the selected objective change the plan and tool sequence?
-- Can a tool fail without becoming a fabricated success?
-- Are assumptions and missing information explicit?
-- Is a source reference preserved and distinguishable from a verified fact?
-- Does the one-call budget produce a partial result?
-- Is a successful local Ollama run clearly distinguished from an unavailable-model failure?
+1. Install Node.js 22+, npm, and Ollama. Have the local `llama3.2:1b` model already installed; no paid service is required.
+2. From the repository root run `npm ci`, copy `.env.example` to `.env.local`, and start Ollama locally with cloud features disabled (`OLLAMA_NO_CLOUD=1 ollama serve` if it is not already running).
+3. Run `npm run dev` and open `http://localhost:3000`. Open **New task**.
+4. Select **Quick calculation** and submit `Calculate mechanical power for 50 Nm at 1500 RPM.` Wait for the bounded run to finish; do not submit repeatedly.
+5. Inspect the plan source, timeline, `calculate_mechanical_power` tool result, and final status. The independent reference is 50 × 1500 × 2π / 60 = 7,853.98 W, approximately **7.85 kW mechanical shaft power**. Only claim an actual tool selection and result if they appear in the run record.
+6. Explain that the model receives the structured tool result for its next decision. If a timeout or partial result occurs, show it honestly; small local models can fail to call or continue a tool.
+
+On 2026-10-30, the separate planning path timed out before executing a tool. Two subsequent direct-mode tests selected `calculate_mechanical_power` and produced 7.853981633974483 kW; the second completed after the model observed the tool result in 9.29 seconds with the model warm. The first was partial because its one-tool budget prevented continuation. These observations do not establish reliable multi-tool behavior. See [verification-report.md](verification-report.md) for details and remaining checks.
+
+## Screenshots and recording
+
+After a successful run, capture the objective and terminal status, the event timeline showing tool selection and completion, and the expanded tool output. Include the plan source and any warnings. For a short recording, show the objective being submitted, wait for the actual result, then point out the selected tool, its data, the final output and the limitations. Do not edit a failed run into a successful one or present a historical image as a new run.
+
+## Submission link and limits
+
+Repository: https://github.com/anurag290805/nova-ai. The current local changes must be reviewed and explicitly committed and pushed by the owner before that link reflects them. Confirm the professor can access the repository. NOVA is a local demonstration, not a production engineering authority; results should be checked and assumptions disclosed. Live multi-tool completion is not established.

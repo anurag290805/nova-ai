@@ -6,7 +6,7 @@ export const mechanicalPowerInputSchema = z.object({
   forceN: finiteNumber.gt(0),
   velocityMps: finiteNumber.gte(0),
   efficiencyPct: finiteNumber.gt(0).lte(100),
-});
+}).strict();
 
 export type MechanicalPowerInput = z.infer<typeof mechanicalPowerInputSchema>;
 
@@ -25,7 +25,7 @@ export const rotationalMechanicalPowerInputSchema = z.object({
   torqueNm: finiteNumber.gt(0),
   rpm: finiteNumber.gte(0),
   efficiencyPct: finiteNumber.gt(0).lte(100).default(100),
-});
+}).strict();
 
 export type RotationalMechanicalPowerInput = z.infer<typeof rotationalMechanicalPowerInputSchema>;
 
@@ -49,7 +49,7 @@ export const energyProductionInputSchema = z.object({
   hoursPerDay: finiteNumber.gt(0).lte(24),
   daysPerYear: finiteNumber.gt(0).lte(366),
   capacityFactorPct: finiteNumber.gt(0).lte(100),
-});
+}).strict();
 
 export type EnergyProductionInput = z.infer<typeof energyProductionInputSchema>;
 
@@ -67,10 +67,31 @@ export function calculateEnergyProduction(input: EnergyProductionInput) {
   };
 }
 
+export const operatingEnergyInputSchema = z.object({
+  powerKw: finiteNumber.gt(0),
+  hoursPerDay: finiteNumber.gt(0).lte(24),
+  days: finiteNumber.gt(0).lte(366),
+}).strict();
+
+export type OperatingEnergyInput = z.infer<typeof operatingEnergyInputSchema>;
+
+export function calculateOperatingEnergy(input: OperatingEnergyInput) {
+  const parsed = operatingEnergyInputSchema.parse(input);
+  const operatingHours = parsed.hoursPerDay * parsed.days;
+  return {
+    powerKw: parsed.powerKw,
+    hoursPerDay: parsed.hoursPerDay,
+    days: parsed.days,
+    operatingHours,
+    energyKwh: parsed.powerKw * operatingHours,
+    units: "kWh",
+  };
+}
+
 export const percentageImprovementInputSchema = z.object({
   baseline: finiteNumber.gte(0),
   improved: finiteNumber.gte(0),
-});
+}).strict();
 
 export type PercentageImprovementInput = z.infer<typeof percentageImprovementInputSchema>;
 
@@ -90,7 +111,7 @@ export const costComparisonInputSchema = z.object({
   optionB: finiteNumber.gte(0),
   optionAName: z.string().trim().min(1).max(80),
   optionBName: z.string().trim().min(1).max(80),
-});
+}).strict();
 
 export type CostComparisonInput = z.infer<typeof costComparisonInputSchema>;
 

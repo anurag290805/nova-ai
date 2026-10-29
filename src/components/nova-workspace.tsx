@@ -1,17 +1,17 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { analyzeSolarTracking } from "@/lib/engineering/solar";
 import type { SolarAnalysis, SolarInput } from "@/lib/engineering/solar";
 import type { AgentEvent, AgentRunResult } from "@/types/agent";
 
-type View = "overview" | "agent" | "engineering" | "research" | "reports" | "history" | "settings";
+type View = "agent" | "engineering" | "research" | "reports" | "history" | "settings";
 
 const examples = [
-  "Investigate whether a dual-axis solar tracker is worth the added complexity for a 10 m² panel array.",
+  "Calculate mechanical power for 50 Nm at 1500 RPM.",
   "Calculate the useful mechanical power from 420 N at 1.8 m/s with 82% efficiency.",
-  "Find public research sources about photovoltaic tracking and summarize what needs verification.",
+  "Calculate the power from 120 N of force at 2 m/s.",
 ];
 
 const defaultSolarInput: SolarInput = {
@@ -26,17 +26,14 @@ const defaultSolarInput: SolarInput = {
   dualAxisPenaltyPct: 5,
 };
 
-const navItems: Array<{ id: View; label: string; hint: string; icon: string }> = [
-  { id: "overview", label: "Overview", hint: "Workspace pulse", icon: "◈" },
-  { id: "agent", label: "New task", hint: "Run an investigation", icon: "✦" },
-  { id: "engineering", label: "Workbench", hint: "Solar tracking model", icon: "⌁" },
-  { id: "research", label: "Evidence", hint: "Sources from runs", icon: "◎" },
-  { id: "reports", label: "Reports", hint: "Review and export", icon: "▤" },
-  { id: "history", label: "Run history", hint: "Local activity", icon: "◷" },
+const navItems: Array<{ id: View; label: string }> = [
+  { id: "agent", label: "Workspace" },
+  { id: "history", label: "History" },
+  { id: "settings", label: "Settings" },
 ];
 
 export function NovaWorkspace() {
-  const [view, setView] = useState<View>("overview");
+  const [view, setView] = useState<View>("agent");
   const [objective, setObjective] = useState("");
   const [run, setRun] = useState<AgentRunResult | null>(null);
   const [history, setHistory] = useState<AgentRunResult[]>(() => {
@@ -49,20 +46,27 @@ export function NovaWorkspace() {
     }
   });
   const [isRunning, setIsRunning] = useState(false);
+  const [activeObjective, setActiveObjective] = useState("");
+  const [executionMode, setExecutionMode] = useState<"direct" | "structured">("direct");
+  const requestController = useRef<AbortController | null>(null);
   const [requestError, setRequestError] = useState<string | null>(null);
   const [solarInput, setSolarInput] = useState<SolarInput>(defaultSolarInput);
   const [solarAnalysis, setSolarAnalysis] = useState<SolarAnalysis>(() => analyzeSolarTracking(defaultSolarInput));
 
   async function executeObjective() {
-    if (objective.trim().length < 3 || isRunning) return;
+    if (objective.trim().length < 3 || requestController.current) return;
+    const controller = new AbortController();
+    requestController.current = controller;
     setIsRunning(true);
+    setActiveObjective(objective.trim());
     setRequestError(null);
     setView("agent");
     try {
       const response = await fetch("/api/agent/run", {
         method: "POST",
+        signal: controller.signal,
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ objective, maxToolCalls: 6 }),
+        body: JSON.stringify({ objective, maxToolCalls: 6, executionMode }),
       });
       const payload = (await response.json()) as AgentRunResult | { error?: string };
       if (!response.ok || !isAgentRunResult(payload)) throw new Error("error" in payload ? payload.error : "The agent request failed.");
@@ -77,8 +81,9 @@ export function NovaWorkspace() {
         return next;
       });
     } catch (error) {
-      setRequestError(error instanceof Error ? error.message : "The agent request failed.");
+      setRequestError(controller.signal.aborted ? "Cancellation requested. The connection was closed; Ollama may still be stopping its inference." : error instanceof Error ? error.message : "The agent request failed.");
     } finally {
+      requestController.current = null;
       setIsRunning(false);
     }
   }
@@ -100,47 +105,13 @@ export function NovaWorkspace() {
 
   return (
     <div className="nova-shell">
-      <aside className="nova-sidebar">
-        <div className="brand-lockup">
-          <div className="brand-mark" aria-hidden="true">N</div>
-          <div>
-            <p className="eyebrow">AETHRA / SYSTEM 01</p>
-            <p className="brand-name">NOVA</p>
-          </div>
-        </div>
-        <div className="sidebar-rule" />
-        <p className="sidebar-label">Workspace</p>
-        <nav className="primary-nav" aria-label="Primary navigation">
-          {navItems.map((item) => (
-            <button key={item.id} className={`nav-item ${view === item.id ? "is-active" : ""}`} onClick={() => setView(item.id)}>
-              <span className="nav-icon" aria-hidden="true">{item.icon}</span>
-              <span><strong>{item.label}</strong><small>{item.hint}</small></span>
-              {view === item.id ? <span className="nav-pip" aria-hidden="true" /> : null}
-            </button>
-          ))}
-        </nav>
-        <div className="sidebar-bottom">
-          <button className={`nav-item ${view === "settings" ? "is-active" : ""}`} onClick={() => setView("settings")}>
-            <span className="nav-icon" aria-hidden="true">◌</span>
-            <span><strong>Settings</strong><small>Runtime configuration</small></span>
-          </button>
-          <div className="operator-card">
-            <span className="status-dot" />
-            <div><strong>Local workspace</strong><small>Read-only tools enabled</small></div>
-          </div>
-        </div>
-      </aside>
-
+      <header className="minimal-header">
+        <button className="minimal-brand" onClick={() => setView("agent")} aria-label="NOVA workspace"><strong>NOVA</strong><span>by AETHRA</span></button>
+        <nav className="minimal-nav" aria-label="Primary navigation">{navItems.map((item) => <button key={item.id} className={view === item.id ? "is-active" : ""} aria-current={view === item.id ? "page" : undefined} onClick={() => setView(item.id)}>{item.label}</button>)}</nav>
+      </header>
       <main className="nova-main">
-        <header className="topbar">
-          <div><p className="eyebrow">AUTONOMOUS ENGINEERING INTELLIGENCE</p><h1>{pageTitle(view)}</h1></div>
-          <div className="topbar-meta"><span className="live-indicator"><span className="status-dot" />SYSTEM READY</span><span className="date-stamp">OCT 27 / 2026</span></div>
-        </header>
-
-        {requestError ? <div className="alert error-alert" role="alert"><strong>Run attention</strong><span>{requestError}</span><button onClick={() => setRequestError(null)} aria-label="Dismiss error">×</button></div> : null}
-
-        {view === "overview" ? <Overview onStart={() => setView("agent")} onOpenRun={() => setView("agent")} onExample={(value) => { setObjective(value); setView("agent"); }} run={run} history={history} /> : null}
-        {view === "agent" ? <AgentView objective={objective} setObjective={setObjective} onRun={executeObjective} isRunning={isRunning} run={run} onExample={setObjective} /> : null}
+        {requestError ? <div className="alert error-alert" role="alert"><span>{requestError}</span><button onClick={() => setRequestError(null)} aria-label="Dismiss error">×</button></div> : null}
+        {view === "agent" ? <AgentView objective={objective} setObjective={setObjective} onRun={executeObjective} onCancel={() => requestController.current?.abort()} isRunning={isRunning} activeObjective={activeObjective} run={run} onExample={setObjective} executionMode={executionMode} setExecutionMode={setExecutionMode} onNavigate={setView} /> : null}
         {view === "engineering" ? <EngineeringView input={solarInput} analysis={solarAnalysis} updateInput={updateSolarInput} onCalculate={calculateSolar} /> : null}
         {view === "research" ? <ResearchView sources={currentSources} run={run} onStart={() => setView("agent")} /> : null}
         {view === "reports" ? <ReportsView run={run} onStart={() => setView("agent")} /> : null}
@@ -151,56 +122,19 @@ export function NovaWorkspace() {
   );
 }
 
-function Overview({ onStart, onOpenRun, onExample, run, history }: { onStart: () => void; onOpenRun: () => void; onExample: (value: string) => void; run: AgentRunResult | null; history: AgentRunResult[] }) {
-  return <div className="page-content overview-page">
-    <section className="hero-grid">
-      <div className="hero-copy">
-        <span className="section-index">01 / 06 — MISSION CONTROL</span>
-        <h2>Turn complex questions into <em>defensible</em> engineering work.</h2>
-        <p>NOVA plans bounded investigations, selects validated tools, observes results, and shows its operational trail. Start with a question, not a chat.</p>
-        <button className="primary-button" onClick={onStart}>Open agent workspace <span aria-hidden="true">↗</span></button>
-      </div>
-      <div className="signal-card">
-        <div className="signal-header"><span>RUN READINESS</span><span className="green-text">● NOMINAL</span></div>
-        <div className="signal-graphic" aria-hidden="true"><div className="signal-ring ring-one" /><div className="signal-ring ring-two" /><div className="signal-core">N</div><span className="signal-line line-a" /><span className="signal-line line-b" /></div>
-        <div className="signal-footer"><span>READ-ONLY TOOLSET</span><strong>08</strong></div>
-      </div>
-    </section>
-    <section className="metric-strip" aria-label="Workspace metrics">
-      <Metric label="Tool registry" value="08" detail="validated operations" />
-      <Metric label="Execution budget" value="06" detail="max tool calls / run" />
-      <Metric label="Persistence" value="LOCAL" detail="browser run history" />
-      <Metric label="Provider" value="OLLAMA" detail="localhost-only model" />
-    </section>
-    <section className="section-block">
-      <div className="section-heading"><div><span className="section-index">START HERE</span><h3>Choose an investigation</h3></div><span className="muted-label">Different objectives, different paths</span></div>
-      <div className="example-grid">{examples.map((example, index) => <button className="example-card" key={example} onClick={() => onExample(example)}><span>0{index + 1}</span><strong>{example}</strong><small>Run objective ↗</small></button>)}</div>
-    </section>
-    <section className="section-block lower-grid">
-      <div><div className="section-heading"><div><span className="section-index">LATEST SIGNAL</span><h3>{run ? "Last execution" : "No execution yet"}</h3></div></div>{run ? <RunSummary run={run} onOpen={onOpenRun} /> : <EmptyState title="Your first run is waiting" body="Use one of the objectives above to see planning, tool selection, and bounded results in the workspace." action="Start a task" onAction={onStart} />}</div>
-      <div className="principles-card"><span className="section-index">NOVA PRINCIPLES</span><div className="principle"><b>01</b><span><strong>Evidence over confidence</strong><small>Claims keep their source and status.</small></span></div><div className="principle"><b>02</b><span><strong>Visible operations</strong><small>Events show what actually ran.</small></span></div><div className="principle"><b>03</b><span><strong>Bounded autonomy</strong><small>Tools are validated and capped.</small></span></div></div>
-    </section>
-    {history.length > 0 ? <p className="history-note">{history.length} local run{history.length === 1 ? "" : "s"} retained in this browser.</p> : null}
-  </div>;
-}
-
-function AgentView({ objective, setObjective, onRun, isRunning, run, onExample }: { objective: string; setObjective: (value: string) => void; onRun: () => void; isRunning: boolean; run: AgentRunResult | null; onExample: (value: string) => void }) {
+function AgentView({ objective, setObjective, onRun, onCancel, isRunning, activeObjective, run, onExample, executionMode, setExecutionMode, onNavigate }: { objective: string; setObjective: (value: string) => void; onRun: () => void; onCancel: () => void; isRunning: boolean; activeObjective: string; run: AgentRunResult | null; onExample: (value: string) => void; executionMode: "direct" | "structured"; setExecutionMode: (value: "direct" | "structured") => void; onNavigate: (view: View) => void }) {
   return <div className="page-content agent-page">
-    <section className="workspace-intro"><div><span className="section-index">02 / AGENT WORKSPACE</span><h2>Give NOVA a real objective.</h2><p>It will create a plan, choose from bounded tools, and return an inspectable execution record.</p></div><div className="budget-chip"><span>MAX EXECUTION</span><strong>06 TOOL CALLS</strong></div></section>
-    <div className="agent-layout">
-      <div><TaskComposer objective={objective} setObjective={setObjective} onRun={onRun} isRunning={isRunning} /><div className="suggestions"><span>Try a structured objective</span>{examples.map((example) => <button key={example} onClick={() => onExample(example)}>{example}</button>)}</div></div>
-      <aside className="agent-rail"><span className="section-index">OPERATING MODEL</span><div className="rail-step"><b>01</b><span><strong>Plan</strong><small>Objective becomes a task graph.</small></span></div><div className="rail-step"><b>02</b><span><strong>Act</strong><small>Only registered tools can run.</small></span></div><div className="rail-step"><b>03</b><span><strong>Observe</strong><small>Outputs revise the next step.</small></span></div><div className="rail-step"><b>04</b><span><strong>Report</strong><small>Results retain assumptions.</small></span></div></aside>
-    </div>
-    {run ? <ExecutionPanel run={run} /> : <div className="empty-execution"><span className="empty-icon">⌁</span><h3>Execution telemetry will appear here</h3><p>Every task exposes operational events, tool results, warnings, and the final status.</p></div>}
+    <section className="welcome"><span className="welcome-kicker">YOUR ENGINEERING WORKSPACE</span><h1>What would you like to work through?</h1><p>Give NOVA an objective. It can choose a tool, work through the result, and show you the evidence.</p></section>
+    <div className="composer-card"><label htmlFor="objective">Your objective</label><textarea id="objective" value={objective} maxLength={2000} onChange={(event) => setObjective(event.target.value)} placeholder="Describe a calculation or engineering question..." rows={4} /><div className="composer-bottom"><label className="mode-select">Approach <select value={executionMode} onChange={(event) => setExecutionMode(event.target.value as "direct" | "structured")} disabled={isRunning}><option value="direct">Quick calculation</option><option value="structured">Structured investigation</option></select></label>{isRunning ? <button className="secondary-button" onClick={onCancel}>Cancel</button> : <button className="primary-button" onClick={onRun} disabled={objective.trim().length < 3}>Run objective <span aria-hidden="true">→</span></button>}</div></div>
+    <div className="suggestions"><span>TRY AN EXAMPLE</span>{examples.map((example) => <button key={example} onClick={() => onExample(example)}>{example}</button>)}</div>
+    <p className="mode-hint">Quick calculation offers arithmetic and mechanical power tools. Choose structured investigation for research, solar, and multi-step work.</p>
+    {isRunning ? <section className="running-state" role="status" aria-live="polite"><span className="activity-indicator" aria-hidden="true" /><div><strong>Working on your objective</strong><p>{activeObjective}</p><small>Waiting for the local model. This can take a few minutes; detailed events appear when the run ends.</small></div></section> : run ? <ExecutionPanel run={run} onNavigate={onNavigate} /> : null}
+    <div className="context-links"><span>EXPLORE</span><button onClick={() => onNavigate("engineering")}>Solar workbench</button><button onClick={() => onNavigate("research")}>Evidence</button><button onClick={() => onNavigate("reports")}>Reports</button></div>
   </div>;
 }
 
-function TaskComposer({ objective, setObjective, onRun, isRunning }: { objective: string; setObjective: (value: string) => void; onRun: () => void; isRunning: boolean }) {
-  return <div className="composer-card"><div className="composer-top"><span className="input-label"><span className="status-dot" />OBJECTIVE INPUT</span><span className="char-count">{objective.length} / 2,000</span></div><textarea value={objective} onChange={(event) => setObjective(event.target.value)} placeholder="e.g. Investigate whether a dual-axis solar tracker is worth the complexity for my prototype..." rows={5} aria-label="Engineering objective" /><div className="composer-bottom"><span className="composer-note">Read-only tools · bounded execution · explicit assumptions</span><button className="primary-button" onClick={onRun} disabled={isRunning || objective.trim().length < 3}>{isRunning ? <><span className="spinner" />Running investigation</> : <>Run objective <span aria-hidden="true">↗</span></>}</button></div></div>;
-}
-
-function ExecutionPanel({ run }: { run: AgentRunResult }) {
-  return <section className="execution-panel"><div className="execution-header"><div><span className="section-index">EXECUTION RECORD / {run.runId.slice(0, 8).toUpperCase()}</span><h3>{statusLabel(run.status)}</h3></div><div className={`mode-badge ${run.mode === "ollama-local" ? "live-mode" : "local-mode"}`}><span className="status-dot" />{run.mode === "ollama-local" ? "OLLAMA LOCAL" : "LOCAL DEMONSTRATION"}</div></div><div className="objective-echo"><span>OBJECTIVE</span><strong>{run.objective}</strong></div><div className="execution-grid"><div className="timeline"><span className="timeline-label">EVENT TIMELINE</span>{run.events.map((event) => <EventRow key={event.id} event={event} />)}</div><div className="result-column"><div className="result-card final-result"><span className="timeline-label">FINAL OUTPUT</span><p>{run.finalSummary}</p>{run.warnings.length ? <div className="warning-box"><strong>Uncertainty / attention</strong>{run.warnings.map((warning) => <span key={warning}>{warning}</span>)}</div> : null}</div>{run.toolResults.map((result, index) => <details className="result-card tool-result" key={`${result.toolName}-${index}`} open={index === run.toolResults.length - 1}><summary><span className="tool-status">{result.status === "completed" ? "✓" : "!"}</span><span><strong>{result.toolName}</strong><small>{result.summary}</small></span><span className="chevron">⌄</span></summary>{result.error ? <p className="error-text">{result.error}</p> : <pre>{JSON.stringify(result.data, null, 2)}</pre>}</details>)}</div></div>{run.plan ? <div className="plan-footer"><span className="timeline-label">PLAN REVISION {run.plan.revision}</span><div className="plan-steps">{run.plan.steps.map((step) => <span key={step.id} className={`plan-step ${step.status}`}><i />{step.title}</span>)}</div></div> : null}</section>;
+function ExecutionPanel({ run, onNavigate }: { run: AgentRunResult; onNavigate: (view: View) => void }) {
+  return <section className="execution-panel" aria-label="Investigation result"><div className="result-heading"><span className="welcome-kicker">{statusLabel(run.status)}</span><h2>Result</h2><p className="result-objective">{run.objective}</p></div><p className="result-summary">{run.finalSummary}</p>{run.warnings.length ? <div className="warning-box"><strong>Attention</strong>{run.warnings.map((warning, index) => <span key={index}>{warning}</span>)}</div> : null}<div className="result-actions"><button onClick={() => onNavigate("reports")}>Open report →</button>{run.sources.length ? <button onClick={() => onNavigate("research")}>View sources →</button> : null}</div><details className="technical-details"><summary>Execution details <span>{run.toolResults.length} tool result{run.toolResults.length === 1 ? "" : "s"}</span></summary><p className="detail-caption">Approach: {run.runtime.executionMode ?? "structured"} · Plan: {run.plan.source}</p><div className="timeline">{run.events.map((event) => <EventRow key={event.id} event={event} />)}</div>{run.toolResults.map((result, index) => <details className="tool-result" key={`${result.toolName}-${index}`}><summary>{result.toolName} · {result.status}</summary>{result.error ? <p className="error-text">{result.error}</p> : <pre>{JSON.stringify(result.data, null, 2)}</pre>}</details>)}</details></section>;
 }
 
 function EventRow({ event }: { event: AgentEvent }) {
@@ -234,7 +168,7 @@ function ResearchView({ sources, run, onStart }: { sources: Array<{ title: strin
 
 function ReportsView({ run, onStart }: { run: AgentRunResult | null; onStart: () => void }) {
   if (!run) return <div className="page-content"><EmptyState title="No report to review" body="Complete an agent run first. The report view will use the actual plan, events, results, sources, and limitations from that run." action="Start an investigation" onAction={onStart} /></div>;
-  return <div className="page-content report-page"><div className="report-toolbar"><div><span className="section-index">05 / REPORT STUDIO</span><h2>Technical investigation record</h2></div><button className="secondary-button" onClick={() => window.print()}>Print / save PDF ↗</button></div><article className="report-sheet"><div className="report-cover"><span className="report-kicker">NOVA BY AETHRA / TECHNICAL RECORD</span><h3>{reportTitle(run)}</h3><p>{run.objective}</p><div className="report-meta"><span>RUN {run.runId.slice(0, 8).toUpperCase()}</span><span>{run.mode === "ollama-local" ? "OLLAMA LOCAL" : "LOCAL DEMONSTRATION"}</span><span>{new Date(run.completedAt).toLocaleDateString()}</span></div></div><div className="report-section"><span className="section-index">EXECUTIVE SUMMARY</span><p className="report-lead">{run.finalSummary}</p></div><div className="report-columns"><div><span className="timeline-label">METHOD</span><p>NOVA received the objective, generated a structured plan, executed only registered read-only tools within a six-call budget, and recorded each operational event.</p></div><div><span className="timeline-label">STATUS</span><p>{statusLabel(run.status)}. {run.warnings.length ? "Review the attention items before relying on the result." : "No runtime warnings were emitted."}</p></div></div><div className="report-section"><span className="section-index">ASSUMPTIONS & LIMITATIONS</span>{(run.plan.missingInformation.length ? run.plan.missingInformation : ["No additional missing information was recorded by the plan."]).map((item) => <p className="report-bullet" key={item}>— {item}</p>)}<p className="report-bullet">— Tool outputs are bounded engineering calculations and do not constitute laboratory validation or professional design approval.</p></div>{run.sources.length ? <div className="report-section"><span className="section-index">SOURCES</span>{run.sources.map((source) => <p className="report-source" key={source.url}><a href={source.url}>{source.title}</a><small>{source.url}</small></p>)}</div> : null}</article></div>;
+  return <div className="page-content report-page"><div className="report-toolbar"><div><span className="section-index">05 / REPORT STUDIO</span><h2>Technical investigation record</h2></div><button className="secondary-button" onClick={() => window.print()}>Print / save PDF ↗</button></div><article className="report-sheet"><div className="report-cover"><span className="report-kicker">NOVA BY AETHRA / TECHNICAL RECORD</span><h3>{reportTitle(run)}</h3><p>{run.objective}</p><div className="report-meta"><span>RUN {run.runId.slice(0, 8).toUpperCase()}</span><span>{run.mode === "ollama-local" ? "OLLAMA LOCAL" : "LOCAL DEMONSTRATION"}</span><span>{new Date(run.completedAt).toLocaleDateString()}</span></div></div><div className="report-section"><span className="section-index">EXECUTIVE SUMMARY</span><p className="report-lead">{run.finalSummary}</p></div><div className="report-columns"><div><span className="timeline-label">METHOD</span><p>NOVA received the objective, used the {run.runtime.executionMode === "direct" ? "direct calculation path" : "structured investigation path"}, and recorded its model decisions and registered tool activity.</p></div><div><span className="timeline-label">STATUS</span><p>{statusLabel(run.status)}. {run.warnings.length ? "Review the attention items before relying on the result." : "No runtime warnings were emitted."}</p></div></div><div className="report-section"><span className="section-index">ASSUMPTIONS & LIMITATIONS</span>{(run.plan.missingInformation.length ? run.plan.missingInformation : ["No additional missing information was recorded by the plan."]).map((item) => <p className="report-bullet" key={item}>— {item}</p>)}<p className="report-bullet">— Tool outputs are bounded engineering calculations and do not constitute laboratory validation or professional design approval.</p></div>{run.sources.length ? <div className="report-section"><span className="section-index">SOURCES</span>{run.sources.map((source) => <p className="report-source" key={source.url}><a href={source.url}>{source.title}</a><small>{source.url}</small></p>)}</div> : null}</article></div>;
 }
 
 function HistoryView({ history, onSelect, onStart }: { history: AgentRunResult[]; onSelect: (run: AgentRunResult) => void; onStart: () => void }) {
@@ -242,14 +176,11 @@ function HistoryView({ history, onSelect, onStart }: { history: AgentRunResult[]
 }
 
 function SettingsView() {
-  return <div className="page-content settings-page"><section className="workspace-intro"><div><span className="section-index">RUNTIME SETTINGS</span><h2>Deliberate boundaries.</h2><p>Provider configuration stays server-side. The browser never receives credentials or direct tool permissions.</p></div></section><div className="settings-grid"><div className="setting-card"><span className="section-index">MODEL PROVIDER</span><h3>Ollama local adapter</h3><p>Live model mode uses only <code>OLLAMA_BASE_URL</code> on localhost and the configured local model.</p><span className="setting-status">LOCALHOST ONLY</span></div><div className="setting-card"><span className="section-index">EXECUTION SAFETY</span><h3>Read-only tool registry</h3><p>Math, engineering calculations, and public research retrieval are validated. External mutation tools are not registered.</p><span className="setting-status">09 TOOLS / 0 MUTATIONS</span></div><div className="setting-card"><span className="section-index">PERSISTENCE</span><h3>Browser-local history</h3><p>Run records are retained in localStorage for demonstration continuity. Configure a database before production use.</p><span className="setting-status">LOCAL DEVELOPMENT</span></div></div></div>;
+  return <div className="page-content settings-page"><section className="workspace-intro"><div><span className="section-index">RUNTIME SETTINGS</span><h2>Deliberate boundaries.</h2><p>Provider configuration stays server-side. The browser never receives credentials or direct tool permissions.</p></div></section><div className="settings-grid"><div className="setting-card"><span className="section-index">MODEL PROVIDER</span><h3>Ollama local adapter</h3><p>Live model mode uses only <code>OLLAMA_BASE_URL</code> on localhost and the configured local model.</p><span className="setting-status">LOCALHOST ONLY</span></div><div className="setting-card"><span className="section-index">EXECUTION SAFETY</span><h3>Read-only tool registry</h3><p>Math, engineering calculations, and public research retrieval are validated. External mutation tools are not registered.</p><span className="setting-status">10 TOOLS / 0 MUTATIONS</span></div><div className="setting-card"><span className="section-index">PERSISTENCE</span><h3>Browser-local history</h3><p>Run records are retained in localStorage for demonstration continuity. Configure a database before production use.</p><span className="setting-status">LOCAL DEVELOPMENT</span></div></div></div>;
 }
 
-function RunSummary({ run, onOpen }: { run: AgentRunResult; onOpen: () => void }) { return <div className="run-summary"><div className="summary-status"><span className={`status-pill ${run.status}`}>{run.status}</span><span>{run.toolResults.length} tool result{run.toolResults.length === 1 ? "" : "s"}</span></div><p>{run.finalSummary}</p><button className="text-button" onClick={onOpen}>Open execution record ↗</button></div>; }
 function EmptyState({ title, body, action, onAction }: { title: string; body: string; action: string; onAction: () => void }) { return <div className="empty-state"><span className="empty-icon">＋</span><h3>{title}</h3><p>{body}</p><button className="secondary-button" onClick={onAction}>{action} ↗</button></div>; }
-function Metric({ label, value, detail }: { label: string; value: string; detail: string }) { return <div className="metric"><span>{label}</span><strong>{value}</strong><small>{detail}</small></div>; }
-function pageTitle(view: View) { return navItems.find((item) => item.id === view)?.label ?? "Settings"; }
-function statusLabel(status: AgentRunResult["status"]) { return status === "completed" ? "Investigation complete" : status === "partial" ? "Investigation partially complete" : status === "cancelled" ? "Investigation cancelled" : "Investigation failed"; }
+function statusLabel(status: AgentRunResult["status"]) { return status === "completed" ? "Investigation complete" : status === "partial" ? "Investigation partially complete" : status === "cancelled" ? "Investigation cancelled" : status === "timed_out" ? "Investigation timed out" : "Investigation failed"; }
 function eventLabel(type: AgentEvent["type"]) { return type.replaceAll("_", " ").replace(/(^|\s)\S/g, (letter) => letter.toUpperCase()); }
 function formatTime(timestamp: string) { return new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
 function formatNumber(value: number) { return new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(value); }

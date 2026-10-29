@@ -3,11 +3,13 @@ import { z } from "zod";
 import {
   calculateCostComparison,
   calculateEnergyProduction,
+  calculateOperatingEnergy,
   calculateMechanicalPower,
   calculateRotationalMechanicalPower,
   calculatePercentageImprovement,
   costComparisonInputSchema,
   energyProductionInputSchema,
+  operatingEnergyInputSchema,
   mechanicalPowerInputSchema,
   rotationalMechanicalPowerInputSchema,
   percentageImprovementInputSchema,
@@ -106,6 +108,29 @@ const tools: ToolDefinition[] = [
     },
     async execute(input) {
       return calculateEnergyProduction(energyProductionInputSchema.parse(input));
+    },
+  },
+  {
+    name: "operating_energy",
+    description: "Calculate energy over an explicit operating duration from an explicitly stated power. This does not infer electrical input power from mechanical shaft output.",
+    permission: "read-only",
+    inputSchema: operatingEnergyInputSchema,
+    numericFields: {
+      powerKw: ENGINEERING_UNITS.powerKw,
+      hoursPerDay: ENGINEERING_UNITS.timeHours,
+      days: ENGINEERING_UNITS.timeDays,
+    },
+    modelInput: {
+      type: "object",
+      properties: {
+        powerKw: { type: "number", description: "Explicit stated power in kW; bare number, example 7.85. Do not infer electrical input from mechanical output without an efficiency assumption." },
+        hoursPerDay: { type: "number", description: "Operating hours per day; bare number, example 6" },
+        days: { type: "number", description: "Number of operating days; bare number, example 30" },
+      },
+      required: ["powerKw", "hoursPerDay", "days"],
+    },
+    async execute(input) {
+      return calculateOperatingEnergy(operatingEnergyInputSchema.parse(input));
     },
   },
   {
@@ -208,6 +233,28 @@ export function getModelTools(toolNames?: readonly string[]) {
     description: tool.description,
     input_schema: tool.modelInput,
   }));
+}
+
+export function getRelevantToolNames(capabilities: readonly string[]) {
+  const normalized = capabilities.join(" ").toLowerCase();
+  const names = new Set<string>();
+  if (/math|arithmetic|numeric|calculate|formula/.test(normalized)) names.add("safe_math");
+  if (/mechanical|force|velocity|power|torque|rpm|rotation/.test(normalized)) {
+    names.add("mechanical_power");
+    names.add("calculate_mechanical_power");
+  }
+  if (/energy|production|capacity|annual|operating/.test(normalized)) {
+    names.add("energy_production");
+    names.add("operating_energy");
+  }
+  if (/percentage|improvement|compare|comparison|change/.test(normalized)) names.add("percentage_improvement");
+  if (/cost|price|budget|economic/.test(normalized)) names.add("cost_comparison");
+  if (/solar|photovoltaic|tracking|panel|scenario/.test(normalized)) names.add("solar_tracking_analysis");
+  if (/research|evidence|source|paper|literature|citation/.test(normalized)) {
+    names.add("research_search");
+    names.add("research_open");
+  }
+  return names.size ? [...names] : toolRegistry.map((tool) => tool.name);
 }
 
 export async function executeTool(name: string, rawInput: unknown, context: ToolContext = {}): Promise<ToolExecution> {

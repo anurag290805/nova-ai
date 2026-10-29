@@ -27,3 +27,6 @@ pnpm-debug.log*
 .DS_Store
 .idea/
 .vscode/
+
+# Generated local evaluation results
+evaluation/results-*.json

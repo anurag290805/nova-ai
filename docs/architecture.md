@@ -1,5 +1,9 @@
 # NOVA architecture
 
+Runtime safety: each local model request has a configured timeout, and an overall agent deadline bounds planning and execution. The request signal is passed through to Ollama and tools; the API limits concurrent runs within one server process. These are HTTP-level controls, not proof of Ollama inference termination or a distributed lock.
+
+The workspace offers an explicit quick-calculation mode and a structured-investigation mode. Quick mode skips the separate JSON planning call and offers the model three registered arithmetic and mechanical-power tools; it is a fixed candidate set, not a keyword-selected tool or an AI-generated plan. The model selects the tool, and may continue after its output within the same budgets. Structured mode retains the separate validated plan and broader registry. Runtime metadata and plan source identify the path. A direct response without a tool is partial and its unverified numerical answer is not presented as a grounded result.
+
 ## System boundary
 
 ```text
@@ -27,8 +31,8 @@ Next.js Node route
 ## Execution lifecycle
 
 1. The route validates a 3–2,000 character objective and an optional 1–6 tool-call budget.
-2. `createPlan` creates objective-specific steps and records missing information.
-3. NOVA sends a constrained system instruction and the next planned registered tool schema to the localhost Ollama `/api/chat` endpoint. Provider-selected tools are parsed, dimension-normalized, schema-validated, and executed by name only.
+2. NOVA asks localhost Ollama for a JSON plan. The plan is Zod-validated and labelled `ollama`; if planning fails, a clearly labelled `fallback` plan is used and the warning is retained. A timeout or cancellation ends the run.
+3. The execution loop sends the objective, plan, and a context-appropriate candidate-tool set to Ollama. Provider-selected tools are parsed, dimension-normalized, schema-validated, and executed by name only.
 4. If Ollama is unavailable, the runner returns a structured `failed` result with a local-model-unavailable message. There is no cloud or deterministic fallback path.
 5. Tool execution has a per-tool timeout, structured success/failure result, a hard call budget, at most one runtime retry, and at most one model correction after validation failure. Retries consume the same budget. Tool output and machine-readable validation issues are returned to the model only as data.
 6. Events, plan revisions, tool outputs, source references, warnings, and a terminal status are returned to the UI.

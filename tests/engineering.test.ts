@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   calculateMechanicalPower,
+  calculateOperatingEnergy,
   calculateRotationalMechanicalPower,
   calculatePercentageImprovement,
   evaluateArithmetic,
@@ -30,6 +31,13 @@ describe("bounded engineering calculations", () => {
     const result = calculateRotationalMechanicalPower({ torqueNm: 50, rpm: 1_500 });
     expect(result.idealPowerKw).toBeCloseTo(7.85398, 4);
     expect(result.usefulPowerKw).toBeCloseTo(7.85398, 4);
+  });
+
+  it("calculates operating energy from an explicitly stated power and duration", () => {
+    const result = calculateOperatingEnergy({ powerKw: 7.853981633974483, hoursPerDay: 6, days: 30 });
+    expect(result.operatingHours).toBe(180);
+    expect(result.energyKwh).toBeCloseTo(1_413.7167, 4);
+    expect(result.units).toBe("kWh");
   });
 
   it("rejects a zero baseline and computes a valid comparison", () => {
@@ -93,5 +101,38 @@ describe("bounded engineering calculations", () => {
     });
     expect(result.status).toBe("completed");
     expect(result.data).toMatchObject({ input: { panelAreaM2: 10, annualIrradianceKwhM2: 1_500 } });
+  });
+
+  it("reports physically inconsistent solar rated power as a warning without changing the estimate", () => {
+    const result = analyzeSolarTracking({
+      panelAreaM2: 10,
+      panelEfficiencyPct: 20,
+      annualIrradianceKwhM2: 1_500,
+      performanceRatioPct: 78,
+      ratedPowerKw: 100,
+      singleAxisGainPct: 12,
+      dualAxisGainPct: 22,
+      singleAxisPenaltyPct: 2,
+      dualAxisPenaltyPct: 5,
+    });
+    expect(result.warnings.some((warning) => warning.includes("physically inconsistent"))).toBe(true);
+    expect(result.scenarios[0].annualEnergyKwh).toBe(2_340);
+  });
+
+  it("rejects unknown fields instead of silently stripping them", async () => {
+    const result = await executeTool("solar_tracking_analysis", {
+      panelAreaM2: 10,
+      panelEfficiencyPct: 20,
+      annualIrradianceKwhM2: 1_500,
+      performanceRatioPct: 78,
+      ratedPowerKw: 2,
+      singleAxisGainPct: 12,
+      dualAxisGainPct: 22,
+      singleAxisPenaltyPct: 2,
+      dualAxisPenaltyPct: 5,
+      unexpectedField: 42,
+    });
+    expect(result.status).toBe("failed");
+    expect(result.error).toContain("unexpectedField");
   });
 });
